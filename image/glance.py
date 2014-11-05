@@ -518,7 +518,8 @@ def _extract_attributes(image):
                         'container_format', 'status', 'id',
                         'name', 'created_at', 'updated_at',
                         'deleted', 'deleted_at', 'checksum',
-                        'min_disk', 'min_ram', 'is_public']
+                        'min_disk', 'min_ram', 'is_public',
+                        'parent_id']
 
     queued = getattr(image, 'status') == 'queued'
     queued_exclude_attrs = ['disk_format', 'container_format']

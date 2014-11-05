@@ -33,6 +33,7 @@ from nova.openstack.common import units
 from nova import utils
 from nova.virt import images
 from nova.virt import volumeutils
+from nova.image import glance
 
 libvirt_opts = [
     cfg.BoolOpt('snapshot_compression',
@@ -649,8 +650,17 @@ def get_fs_info(path):
 
 def fetch_image(context, target, image_id, user_id, project_id, max_size=0):
     """Grab image."""
-    images.fetch_to_raw(context, image_id, target, user_id, project_id,
-                        max_size=max_size)
+    path_dir = os.path.dirname(target)
+    
+    (image_service, image_id) = glance.get_remote_image_service(context, image_id)
+    image = image_service.show(context, image_id)
+    parent_id = image.get('parent_id', None)
+    
+    if parent_id is None:
+        images.fetch_to_raw(context, image_id, target, user_id, project_id,
+                             max_size, False)
+    else:
+        images.fetch_with_backing_file(context, image_id, target, path_dir, user_id, project_id, max_size)
 
 
 def get_instance_path(instance, forceold=False, relative=False):

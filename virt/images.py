@@ -20,6 +20,7 @@ Handling of VM disk images.
 """
 
 import os
+import hashlib
 
 from oslo.config import cfg
 
@@ -61,6 +62,11 @@ def convert_image(source, dest, out_format, run_as_root=False):
     utils.execute(*cmd, run_as_root=run_as_root)
 
 
+def rebase_image(backing_file, snap_file, run_as_root=False):
+    cmd = ('qemu-img', 'rebase', '-u', '-b', backing_file, snap_file)
+    utils.execute(*cmd, run_as_root=run_as_root)
+
+
 def fetch(context, image_href, path, _user_id, _project_id, max_size=0):
     # TODO(vish): Improve context handling and add owner and auth data
     #             when it is added to glance.  Right now there is no
@@ -72,7 +78,7 @@ def fetch(context, image_href, path, _user_id, _project_id, max_size=0):
         image_service.download(context, image_id, dst_path=path)
 
 
-def fetch_to_raw(context, image_href, path, user_id, project_id, max_size=0):
+def fetch_to_raw(context, image_href, path, user_id, project_id, max_size=0, backing=True):
     path_tmp = "%s.part" % path
     fetch(context, image_href, path_tmp, user_id, project_id,
           max_size=max_size)
@@ -87,7 +93,7 @@ def fetch_to_raw(context, image_href, path, user_id, project_id, max_size=0):
                 image_id=image_href)
 
         backing_file = data.backing_file
-        if backing_file is not None:
+        if backing_file and backing is False:
             raise exception.ImageUnacceptable(image_id=image_href,
                 reason=(_("fmt=%(fmt)s backed by: %(backing_file)s") %
                         {'fmt': fmt, 'backing_file': backing_file}))
@@ -125,3 +131,22 @@ def fetch_to_raw(context, image_href, path, user_id, project_id, max_size=0):
                 os.rename(staged, path)
         else:
             os.rename(path_tmp, path)
+
+
+def fetch_with_backing_file(context, image_href, path, path_dir, user_id, project_id, max_size=0):
+    """notice the rebase is not safe"""
+    fetch_to_raw(context, image_href, path, user_id, project_id, max_size=max_size)
+
+    (image_service, image_id) = glance.get_remote_image_service(context, image_href)
+    image = image_service.show(context, image_id)
+    parent_id = image.get('parent_id', None)
+    child_path = path
+    
+    while parent_id is not None:
+        parent_name = hashlib.sha1(parent_id).hexdigest()
+        parent_path=path_dir+"/"+parent_name
+        fetch_to_raw(context, parent_id, parent_path, user_id, project_id, max_size=max_size)
+        rebase_image(parent_path, child_path)
+        image=image_service.show(context, parent_id)
+        parent_id=image.get('parent_id', None)
+        child_path=parent_path
